@@ -1,109 +1,126 @@
 # Prestanda
 
-*M7 – Snabb. Budgeten bevakas i CI (`lighthouserc.json`, jobbet "Prestandabudget (Lighthouse)"). Varje optimering nedan är mätt före och efter, på samma dator, med samma inställningar.*
+*M7 – Prestandan mäts på produktionsbygget. Lighthouse-resultaten dokumenteras och används för att identifiera förbättringar. Endast verifierade optimeringar redovisas som genomförda.*
 
 ## Så mäter vi
 
 | Vad | Verktyg | Inställning |
 |---|---|---|
-| Dashboarden (inloggad) | Chrome DevTools → Performance → *Local metrics* (LCP, CLS) | Produktionsbygget (`npm run build && npm run preview`), enhetsläge **iPhone 12 Pro** (390 × 844), nätverk **Fast 4G**, *Disable network cache* på, tre omladdningar, medianen |
-| Inloggningssidan | Lighthouse (DevTools, mobil) lokalt · Lighthouse CI i pipelinen | Tre körningar, medianen |
-| JavaScript per sida | `npm run build` (kolumnen gzip) · `npx vite-bundle-visualizer` för att se vad som ligger i en chunk | – |
+| Webbapplikationen | Chrome DevTools → Lighthouse | Produktionsbygge med `npm run build` och `npm run preview` |
+| Enhetsläge | Lighthouse | Emulated Moto G Power |
+| Nätverk | Lighthouse | Slow 4G |
+| Webbläsare | Chromium 155 | Lighthouse 13.4.1 |
+| JavaScript | Vite build | Storlekar från produktionsbyggets gzip-rapport |
 
-Vi mäter aldrig `npm run dev` – dev-servern skickar okomprimerade moduler en och en och säger ingenting om vad en kund får.
+Testet genomfördes den 22 oktober 2026. En dokumenterad körning finns tillgänglig. Medianen av tre körningar har ännu inte mätts.
+
+Vi använder produktionsbygget eftersom det bättre motsvarar den optimerade frontend som levereras till användaren än utvecklingsservern.
 
 ## Budgeten
 
-| Mått | Budget | Var | Varför just den |
+| Mått | Mål | Var | Varför |
 |---|---|---|---|
-| LCP | ≤ 2,5 s | `/login` i CI | Googles gräns för "bra". Dashboarden mäts manuellt (den kräver inloggning) |
-| CLS | ≤ 0,1 | `/login` i CI | Googles gräns för "bra" |
-| JavaScript som laddas | ≤ 60 kB (överfört) | `/login` i CI | Vi ligger på 44 kB. Budgeten ligger strax över där vi är, så att en ny tung import syns direkt |
-| TBT | ≤ 200 ms (varning) | `/login` i CI | Labbets närmaste mått på INP – varnar, blockerar inte |
+| Performance | ≥ 90 | Lighthouse | Mål för god uppmätt prestanda |
+| LCP | ≤ 2,5 s | Lighthouse | Målet är att huvudinnehållet ska visas snabbt |
+| CLS | ≤ 0,1 | Lighthouse | Begränsar oväntade layoutförflyttningar |
+| TBT | ≤ 200 ms | Lighthouse | Begränsar tiden som huvudtråden blockeras |
+| JavaScript | Fastställs efter mätning | Vite build | En budget ska baseras på den faktiska mängden JavaScript som laddas |
 
-Budgeten är satt **strax över där vi ligger efter optimeringarna**, inte där vi hoppas hamna. En budget man redan bryter mot slutar folk titta på.
+LCP-, CLS- och TBT-målen används som riktmärken. JavaScript-budgeten behöver fastställas efter att den faktiska överförda mängden vid första sidvisningen har verifierats.
 
 ## Optimeringarna
 
-### 1. Hero-bilden: 6 485 kB PNG → 5 kB WebP
+### 1. Produktionsbygge i stället för utvecklingsserver
 
-Dashboardens LCP-element var `hero.png`, 2400 × 1200 px och 6,5 MB. Den visas som mest 992 px bred.
+Tidigare kördes Lighthouse mot utvecklingsmiljön. Jag byggde projektet med `npm run build` och startade produktionsförhandsvisningen med `npm run preview`.
 
-```bash
-npx --yes sharp-cli -i src/assets/hero.png -o src/assets/hero.webp -f webp -q 75 resize 1200
-```
+Detta ändrade testmiljön, inte nödvändigtvis applikationens kod. Resultatet visar därför skillnaden mellan de två testkörningarna, men bevisar inte att en specifik kodändring orsakade hela förbättringen.
 
-Samtidigt: `width="1200" height="600"` på `<img>` (browsern reserverar platsen innan bilden kommit) och `fetchpriority="high"` (LCP-bilden hämtas före annat).
+| Mått | Före: utvecklingsmiljö | Efter: produktionsbygge |
+|---|---:|---:|
+| Performance | 56 | 93 |
+| FCP | 4,6 s | 1,7 s |
+| LCP | 10,5 s | 3,1 s |
+| TBT | 210 ms | 60 ms |
+| CLS | 0,002 | 0,002 |
+| Speed Index | 6,9 s | 2,4 s |
 
-| Dashboarden, iPhone 12 Pro, Fast 4G | Före | Efter |
+### 2. JavaScript i produktionsbygget
+
+Vite byggde applikationen och rapporterade följande gzip-storlekar för två JavaScript-filer:
+
+| Fil | Storlek gzip |
+|---|---:|
+| `index-CNvisDp8.js` | 42,85 kB |
+| `DashboardView-SFAEy_92.js` | 51,81 kB |
+
+Storlekarna ovan är rapporterade för enskilda filer. De ska inte automatiskt summeras som den mängd JavaScript som laddas vid första sidvisningen, eftersom olika vyer kan laddas separat.
+
+Lighthouse rapporterade dessutom en uppskattad besparing på 94 KiB genom att minska oanvänd JavaScript. Ingen specifik kodändring för detta är ännu verifierad.
+
+| Mått | Före | Efter |
 |---|---|---|
-| Bildens storlek | 6 485 kB | 5 kB |
-| LCP | 7,2 s | 0,5 s |
-| CLS | 0,18 | 0,03 |
+| Oanvänd JavaScript enligt Lighthouse | Inte dokumenterat | Uppskattad besparing: 94 KiB |
+| Effekt av kodoptimering | Inte uppmätt | Inte uppmätt |
 
-### 2. Lazy routes: all kod i en fil → en chunk per vy
+### 3. Render-blockerande resurser
 
-Alla fem vyer importerades direkt i routern. Nu `() => import('../views/…vue')` – en vy laddas när man går dit.
+Lighthouse rapporterade att render-blockerande resurser potentiellt kan förbättras med cirka 300 ms.
 
-| JavaScript (gzip) | Före | Efter |
+Detta är en uppskattad besparing, inte en uppmätt förbättring efter en genomförd ändring. Nästa steg är att identifiera resurserna och testa en optimering i taget.
+
+| Mått | Före | Efter |
 |---|---|---|
-| Inloggningssidan hämtar | 143 kB | 42 kB (41 + 1) |
+| Uppskattad besparing | 300 ms möjlig | Inte omtestat |
 
-Dashboardens LCP påverkas inte märkbart (0,5 s före och efter) – den avgjordes av bilden. Vinsten är på alla andra sidor.
+### 4. Tillgänglighet för pekmål
 
-### 3. Lodash bort
+Lighthouse gav Accessibility 95 poäng men rapporterade att vissa pekmål är för små eller ligger för nära varandra.
 
-`DashboardView` importerade hela lodash för en `debounce`. Ersatt med `src/utils/debounce.js` (åtta rader).
+Nästa steg är att identifiera de berörda elementen och förbättra deras storlek och mellanrum.
 
-| DashboardView-chunken (gzip) | Före | Efter |
-|---|---|---|
-| | 100 kB | 73 kB |
-
-### 4. Chart.js: bara det vi ritar
-
-`chart.js/auto` registrerar alla diagramtyper. Vi ritar ett stapeldiagram, så vi registrerar `BarController, BarElement, CategoryScale, LinearScale, Tooltip`. Testets mock ändrades samtidigt från `chart.js/auto` till `chart.js` – annars mockar den ingenting.
-
-| DashboardView-chunken (gzip) | Före | Efter |
-|---|---|---|
-| | 73 kB | 52 kB |
-
-### 5. Layoutskift: reserverad plats för bild och diagram
-
-Två saker flyttade innehållet när sidan laddade: bilden (ingen höjd förrän den kommit – lagat i 1) och diagrammet (dyker upp när API:t svarat och trycker ner korten under). Diagrammet fick en behållare med `aspect-ratio: 2 / 1`, samma proportioner som Chart.js ritar i.
-
-| Dashboarden, iPhone 12 Pro, Fast 4G | Före (efter 1) | Efter |
-|---|---|---|
-| CLS | 0,03 | 0,00 |
-
-I ett brett fönster (1280 × 800) syns diagrammets hopp inte alls – kortet under ligger utanför skärmen och räknas inte. Därför mäter vi i enhetsläget.
-
-### 6. Komprimering i nginx
-
-nginx skickar okomprimerat om man inte slår på det. `gzip on` + `gzip_types` för JS, CSS, JSON och SVG i `nginx.conf.template`.
-
-```bash
-curl -s -o /dev/null -w "%{size_download}\n" -H 'Accept-Encoding: gzip' http://localhost:8080/assets/index-<hash>.js
-```
-
-| index-*.js över nätet | Före | Efter |
-|---|---|---|
-| | 104 kB | 46 kB |
-
-Kolla först om plattformen redan komprimerar (`curl -sI -H 'Accept-Encoding: gzip' <staging>/assets/… | grep -i content-encoding`). Gör den det är vinsten noll i staging, men containern blir korrekt även utan en proxy framför.
+| Mått | Resultat |
+|---|---|
+| Accessibility | 95/100 |
+| Pekmål | Förbättring rekommenderas |
+| Efterkontroll | Inte genomförd |
 
 ## Sammanlagt
 
-| Dashboarden, iPhone 12 Pro, Fast 4G, cache av | Före | Efter |
-|---|---|---|
-| LCP | 7,2 s | 0,5 s |
-| CLS | 0,18 | 0,00 |
-| JavaScript (gzip) | 143 kB | 93 kB |
-| Bilder | 6 485 kB | 5 kB |
+Lighthouse-resultatet från produktionsbygget den 22 oktober 2026:
+
+| Mått | Resultat |
+|---|---:|
+| Performance | 93/100 |
+| Accessibility | 95/100 |
+| Best Practices | 100/100 |
+| SEO | 83/100 |
+| Agentic Browsing | 2/3 |
+| FCP | 1,7 s |
+| LCP | 3,1 s |
+| TBT | 60 ms |
+| CLS | 0,002 |
+| Speed Index | 2,4 s |
+
+Performance förbättrades från 56 i utvecklingsmiljön till 93 i produktionsbygget. För att jämföra kodoptimeringar rättvist behöver fortsatta mätningar genomföras med samma produktionsmiljö och inställningar.
 
 ## Flaskhalsen vi inte äger
 
-`GET /api/v2/consumption` svarar efter drygt 600 ms – en `setTimeout` i API:t ("dashboard felt too fast in the demo"). Den syns i nätverksfliken som en lång grön stapel. Det är Kraftlys API, inte vår kod. Vi rapporterade den till Kraftlys IT och gjorde vår del: resten av sidan väntar inte på den, och diagrammets plats är reserverad så att ingenting hoppar när svaret kommer.
+Frontend använder en separat API-server på port 4000. API-fördröjningar kan påverka hur snabbt data visas, men det nuvarande Lighthouse-resultatet fastställer inte hur stor del av LCP som beror på API:t.
+
+Nästa steg är att mäta API-anropens svarstid i Chrome DevTools → Network och skilja mellan nätverksfördröjning, API-svarstid och frontendens rendering.
+
+Vi kan förbättra vår del genom att undvika onödiga anrop, visa laddningstillstånd och låta innehåll som inte är beroende av API-data visas utan onödig väntan.
+
+## Övriga identifierade förbättringar
+
+- **SEO:** Lighthouse rapporterade att sidan saknar meta description.
+- **SEO:** `robots.txt` rapporterades som ogiltig med 16 fel.
+- **Agentic Browsing:** `llms.txt` följer inte alla rekommendationer.
+- **Prestanda:** Lighthouse hittade åtta långa huvudtrådsuppgifter och uppskattad möjlighet att minska oanvänd JavaScript.
+
+Dessa punkter är identifierade förbättringsområden. De betraktas inte som åtgärdade förrän en ändring har genomförts och verifierats med ett nytt test.
 
 ## Vad vi inte gjorde
 
-Vi bytte inte till SSR. Se `docs/decisions/rendering.md`.
+Vi bytte inte renderingsstrategi från SPA till SSR eller SSG. Beslutet om rendering dokumenteras separat i `docs/decisions/rendering.md`.
