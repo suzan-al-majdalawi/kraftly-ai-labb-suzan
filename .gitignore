@@ -17,3 +17,7 @@ cypress/screenshots/
 # Storybook – bygget och loggen från en krasch
 storybook-static/
 *storybook.log
+
+# AI-granskningen – skapas av workflowen och vid lokal provkörning
+diff.patch
+review.md
