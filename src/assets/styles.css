@@ -1,0 +1,65 @@
+/* Kraftly brand -- no styleguide existed, picked colors from their logo /M */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Fokus ska alltid synas för den som använder tangentbordet (WCAG 2.4.7).
+   :focus-visible = browsern visar ringen vid Tab men inte när man klickar med musen på en knapp
+   eller länk – det var det byrån ville åt med outline: none. Blå ring mot ljus bakgrund (5,9:1),
+   vit ring i den mörka toppmenyn. KButton har en egen ring (se KButton.vue). */
+:focus-visible {
+  outline: 3px solid #2f54eb;
+  outline-offset: 2px;
+}
+.topbar :focus-visible { outline-color: #fff; }
+
+body {
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  background: #f4f6f9;
+  color: #23324a;
+}
+
+.container { max-width: 1040px; margin: 0 auto; padding: 24px; }
+
+.card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(20, 30, 60, .08);
+  margin-bottom: 20px;
+}
+
+h1 { font-size: 26px; margin-bottom: 14px; }
+h2 { font-size: 19px; margin-bottom: 10px; }
+
+/* Knapparna bor i src/components/KButton.vue – en komponent, varianter som prop. */
+
+/* Text som bara skärmläsare ska höra (t.ex. vilken faktura en "Ladda ner"-knapp gäller) */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+input, select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d5dbe7;
+  border-radius: 6px;
+  font-size: 15px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+
+.hint { color: #5c6679; font-size: 12px; } /* var #b8c0cf = 1,8:1 mot vitt; nu 5,8:1 (krav 4,5:1) */
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e8ecf3; font-size: 14px; }
+
+.status-chip { border-radius: 12px; padding: 3px 10px; font-size: 12px; }
+.status-obetald { background: #fff1f0; color: #b42318; } /* 6,0:1 (var 3,2:1) */
+.status-betald { background: #ecfdf3; color: #067647; } /* 5,4:1 (var 2,5:1) */
