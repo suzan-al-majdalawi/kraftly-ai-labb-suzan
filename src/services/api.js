@@ -84,6 +84,9 @@ export const fetchConsumption = () => request('/consumption')
 
 export const fetchInvoices = () => request('/invoices')
 
+// Kundnummer + en enskild faktura. Kundtjänst länkar hit från sina mejl: /?customerNo=100234
+export const fetchInvoiceFor = (customerNo, id) => request(`/customers/${customerNo}/invoices/${id}`)
+
 export const submitMove = (data) => request('/move', { method: 'POST', body: JSON.stringify(data) })
 
 export const saveUser = (data) => request('/user', { method: 'PUT', body: JSON.stringify(data) })
